@@ -1,7 +1,7 @@
-CREATE OR REPLACE FUNCTION shrink_large_tables(in sDate timestamp) RETURNS boolean AS $$
+CREATE OR REPLACE FUNCTION shrink_large_tables(in sDate timestamp, big_size integer, use_trunc boolean) RETURNS boolean AS $$
 DECLARE
     mviews RECORD;
-	last_table regclass;
+	last_table REGCLASS;
 	tsize text;
 BEGIN
     RAISE NOTICE 'Очистка больших таблиц...';
@@ -28,9 +28,10 @@ BEGIN
 			) AS all_tables
 		ORDER BY total_size DESC
 		) AS pretty_sizes
-		WHERE table_size > 2097152 and table_name NOT ILIKE '%_referenc%' and table_name NOT ILIKE '%pg_%'
+		WHERE table_size > big_size and table_name NOT ILIKE '%_referenc%' and table_name NOT ILIKE '%pg_%'
 		 
     LOOP
+	 IF last_table <> mviews.table_name::regclass THEN -- уже почистили
 		-- Очистка таблиц
 		
 		IF  mviews.column_name IS NULL 
@@ -42,15 +43,15 @@ BEGIN
 				--RAISE NOTICE 'DELETE FROM % WHERE % < timestamp ''%''', mviews.table_name, mviews.column_name,sDate ;
 				
 		END IF;
-        IF last_table <> mviews.table_name::regclass THEN -- уже почистили
-			-- Очистка индексов
-			EXECUTE (
+       
+		-- Очистка индексов
+		EXECUTE (
 			   SELECT 'DROP INDEX ' || string_agg(indexrelid::regclass::text, ', ')
 			   FROM   pg_index  i
 			   WHERE  i.indrelid = mviews.table_name::regclass -- possibly schema-qualified
 			   );
-			last_table := mviews.table_name::regclass;
-		END IF;		
+		last_table := mviews.table_name::regclass;
+				
 		
 		-- Подсчет нового места
 		
@@ -58,11 +59,12 @@ BEGIN
 		
 		RAISE NOTICE 'Очищена таблица % по условию период записи % < % (% -%)...',
 		 mviews.table_name, mviews.column_name, sDate, pg_size_pretty(mviews.table_size),tsize ;	 
-		
+		END IF;
     END LOOP;
-	
     RAISE NOTICE 'Очистка завершена...';
     RETURN 1;
 	
 END;
 $$ LANGUAGE plpgsql;
+
+
