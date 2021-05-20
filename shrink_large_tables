@@ -1,0 +1,68 @@
+CREATE OR REPLACE FUNCTION shrink_large_tables(in sDate timestamp) RETURNS boolean AS $$
+DECLARE
+    mviews RECORD;
+	last_table regclass;
+	tsize text;
+BEGIN
+    RAISE NOTICE 'Очистка больших таблиц...';
+    FOR mviews IN
+       SELECT
+		table_name,
+		column_name,
+		table_size AS table_size,
+		pg_size_pretty(indexes_size) AS indexes_size,
+		pg_size_pretty(total_size) AS total_size
+		FROM (
+			SELECT DISTINCT
+			table_name AS table_name,
+			column_name AS column_name,
+			pg_table_size(table_name) AS table_size,
+			pg_indexes_size(table_name) AS indexes_size,
+			pg_total_relation_size(table_name) AS total_size
+			FROM (SELECT ('"' || tb.table_schema || '"."' || tb.table_name || '"') AS table_name,
+					cl.column_name AS column_name
+			FROM information_schema.tables AS tb
+			LEFT JOIN information_schema.columns AS cl
+			 ON tb.table_name = cl.table_name and cl.data_type = 'timestamp without time zone'
+			WHERE tb.table_name <> 'config'
+			) AS all_tables
+		ORDER BY total_size DESC
+		) AS pretty_sizes
+		WHERE table_size > 2097152 and table_name NOT ILIKE '%_referenc%' and table_name NOT ILIKE '%pg_%'
+		 
+    LOOP
+		-- Очистка таблиц
+		
+		IF  mviews.column_name IS NULL 
+			THEN
+    			EXECUTE 'TRUNCATE ' || mviews.table_name;	
+				--RAISE NOTICE 'TRUNCATE %', mviews.table_name;	
+			ELSE
+    			EXECUTE 'DELETE FROM ' || mviews.table_name || ' WHERE ' || mviews.column_name || ' < timestamp ''' || sDate || '''';
+				--RAISE NOTICE 'DELETE FROM % WHERE % < timestamp ''%''', mviews.table_name, mviews.column_name,sDate ;
+				
+		END IF;
+        IF last_table <> mviews.table_name::regclass THEN -- уже почистили
+			-- Очистка индексов
+			EXECUTE (
+			   SELECT 'DROP INDEX ' || string_agg(indexrelid::regclass::text, ', ')
+			   FROM   pg_index  i
+			   WHERE  i.indrelid = mviews.table_name::regclass -- possibly schema-qualified
+			   );
+			last_table := mviews.table_name::regclass;
+		END IF;		
+		
+		-- Подсчет нового места
+		
+		EXECUTE 'SELECT pg_size_pretty( pg_table_size( '''|| mviews.table_name ||''' ) )' Into tsize;
+		
+		RAISE NOTICE 'Очищена таблица % по условию период записи % < % (% -%)...',
+		 mviews.table_name, mviews.column_name, sDate, pg_size_pretty(mviews.table_size),tsize ;	 
+		
+    END LOOP;
+	
+    RAISE NOTICE 'Очистка завершена...';
+    RETURN 1;
+	
+END;
+$$ LANGUAGE plpgsql;
