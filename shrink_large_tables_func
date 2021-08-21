@@ -1,17 +1,10 @@
-DO $$
-	DECLARE
-		mviews RECORD;
-		rectext text;
-		tsize text;
-		big_size int;
-		sDate timestamp;
-		only_test bool;
+CREATE OR REPLACE FUNCTION shrink_large_tables(in sDate timestamp, big_size integer, only_test boolean DEFAULT false) RETURNS boolean AS $$
+DECLARE
+    mviews RECORD;
+	rectext text;
+	tsize text;
 BEGIN
-	big_size := 20971520;
-	sDate := '2021-08-19';
-   	only_test = false;
-	
-	RAISE NOTICE 'Очистка больших таблиц...';
+    RAISE NOTICE 'Очистка больших таблиц...';
     FOR mviews IN
        SELECT
 		table_name,
@@ -68,8 +61,11 @@ BEGIN
 		-- Подсчет нового места
 		EXECUTE 'SELECT pg_size_pretty( pg_table_size( '''|| mviews.table_name ||''' ) )' Into tsize;
 		RAISE NOTICE 'Очищена таблица % по условию период записи % < % (от % - до %)...',
-		mviews.table_name, mviews.column_name, sDate, pg_size_pretty(mviews.table_size),tsize ;	 	
+		mviews.table_name, mviews.column_name, sDate, pg_size_pretty(mviews.table_size),tsize ;	 
+		
     END LOOP;
     RAISE NOTICE 'Очистка завершена...';
+    RETURN 1;
 	
-END $$
+END;
+$$ LANGUAGE plpgsql;
