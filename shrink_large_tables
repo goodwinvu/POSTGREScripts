@@ -48,11 +48,10 @@ BEGIN
 		EXECUTE (
 			   SELECT 'DROP INDEX ' || string_agg(indexrelid::regclass::text, ', ')
 			   FROM   pg_index  i
-			   WHERE  i.indrelid = mviews.table_name::regclass -- possibly schema-qualified
+			   WHERE  i.indrelid = mviews.table_name::regclass 
 			   );
 		last_table := mviews.table_name::regclass;
 				
-		
 		-- Подсчет нового места
 		
 		EXECUTE 'SELECT pg_size_pretty( pg_table_size( '''|| mviews.table_name ||''' ) )' Into tsize;
