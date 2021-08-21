@@ -1,7 +1,6 @@
-CREATE OR REPLACE FUNCTION shrink_large_tables(in sDate timestamp, big_size integer, use_trunc boolean) RETURNS boolean AS $$
+CREATE OR REPLACE FUNCTION shrink_large_tables(in sDate timestamp, big_size integer, only_test boolean) RETURNS boolean AS $$
 DECLARE
     mviews RECORD;
-	last_table REGCLASS;
 	tsize text;
 BEGIN
     RAISE NOTICE 'Очистка больших таблиц...';
@@ -31,34 +30,40 @@ BEGIN
 		WHERE table_size > big_size and table_name NOT ILIKE '%_referenc%' and table_name NOT ILIKE '%pg_%'
 		 
     LOOP
-	 IF last_table <> mviews.table_name::regclass THEN -- уже почистили
+		RAISE NOTICE 'Очистка таблицы % ...', mviews.table_name;
+		BEGIN
 		-- Очистка таблиц
-		
-		IF  mviews.column_name IS NULL 
-			THEN
-    			EXECUTE 'TRUNCATE ' || mviews.table_name;	
-				--RAISE NOTICE 'TRUNCATE %', mviews.table_name;	
-			ELSE
-    			EXECUTE 'DELETE FROM ' || mviews.table_name || ' WHERE ' || mviews.column_name || ' < timestamp ''' || sDate || '''';
-				--RAISE NOTICE 'DELETE FROM % WHERE % < timestamp ''%''', mviews.table_name, mviews.column_name,sDate ;
-				
-		END IF;
-       
-		-- Очистка индексов
-		EXECUTE (
-			   SELECT 'DROP INDEX ' || string_agg(indexrelid::regclass::text, ', ')
-			   FROM   pg_index  i
-			   WHERE  i.indrelid = mviews.table_name::regclass 
-			   );
-		last_table := mviews.table_name::regclass;
-				
+			IF  mviews.column_name IS NULL 
+				THEN
+					RAISE NOTICE 'TRUNCATE %', mviews.table_name;
+					IF only_test = false THEN
+						EXECUTE 'TRUNCATE ' || mviews.table_name;	
+					END IF;
+					
+				ELSE
+					RAISE NOTICE 'DELETE FROM % WHERE % < timestamp ''%''', mviews.table_name, mviews.column_name,sDate ;		
+					IF only_test = false THEN
+						EXECUTE 'DELETE FROM ' || mviews.table_name || ' WHERE ' || mviews.column_name || ' < timestamp ''' || sDate || '''';
+					END IF;	
+			END IF;
+			-- Очистка индексов
+			RAISE NOTICE 'Очистка индексов таблицы % ...', mviews.table_name;
+			IF only_test = false THEN
+			EXECUTE (
+				SELECT 'DROP INDEX ' || string_agg(indexrelid::regclass::text, ', ')
+				FROM   pg_index  i
+				WHERE  i.indrelid = mviews.table_name::regclass 
+				);
+			END IF;
+		EXCEPTION
+			WHEN null_value_not_allowed THEN
+				RAISE NOTICE 'Таблица % уже очищена', mviews.table_name;
+		END;	
 		-- Подсчет нового места
-		
 		EXECUTE 'SELECT pg_size_pretty( pg_table_size( '''|| mviews.table_name ||''' ) )' Into tsize;
+		RAISE NOTICE 'Очищена таблица % по условию период записи % < % (от % - до %)...',
+		mviews.table_name, mviews.column_name, sDate, pg_size_pretty(mviews.table_size),tsize ;	 
 		
-		RAISE NOTICE 'Очищена таблица % по условию период записи % < % (% -%)...',
-		 mviews.table_name, mviews.column_name, sDate, pg_size_pretty(mviews.table_size),tsize ;	 
-		END IF;
     END LOOP;
     RAISE NOTICE 'Очистка завершена...';
     RETURN 1;
