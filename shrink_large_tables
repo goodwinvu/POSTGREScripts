@@ -64,7 +64,7 @@ BEGIN
 			WHEN null_value_not_allowed THEN
 				RAISE NOTICE 'Таблица % уже очищена', mviews.table_name;
 		END;
-
+		
 		-- Подсчет нового места
 		EXECUTE 'SELECT pg_size_pretty( pg_table_size( '''|| mviews.table_name ||''' ) )' Into tsize;
 		RAISE NOTICE 'Очищена таблица % по условию период записи % < % (от % - до %)...',
