@@ -1,4 +1,4 @@
-DO $$
+CREATE OR REPLACE FUNCTION shrink_large_tables(in sDate timestamp, big_size integer, only_test boolean DEFAULT false) RETURNS boolean AS $$
 DECLARE
 		mviews RECORD;
 		rectext text;
@@ -8,11 +8,7 @@ DECLARE
 		big_size int;
 		sDate timestamp;
 		only_test bool;
-BEGIN
-	big_size := 20971520;
-	sDate := '2022-05-01';
-   	only_test = false;
-	
+BEGIN	
 	RAISE NOTICE 'Очистка больших таблиц.Начало выполнения.
     ';
 
@@ -98,4 +94,5 @@ BEGIN
     END LOOP;
     RAISE NOTICE '
     Очистка завершена...';	
-END $$
+END;
+$$ LANGUAGE plpgsql;
