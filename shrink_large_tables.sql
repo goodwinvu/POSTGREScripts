@@ -12,7 +12,7 @@ DECLARE
 		only_test bool;
 BEGIN
 	big_size := 20971520; -- указываем размер после которого таблица считается большй 20мб по умолчанию
-	sDate := '2023-08-01'; -- указываем период до которого обрезаем периодические таблицы
+	sDate := '2024-02-01'; -- указываем период до которого обрезаем периодические таблицы
    	num_row_save := 100; -- количество строк оставляемых в непериодических таблицах
 	only_test = true; -- тестовый прогон - true - не трогать данные, только сформировать выборки, false - удаление данных
 	
@@ -58,8 +58,7 @@ BEGIN
 				--rectext := 'TRUNCATE ' || mviews.table_name; раньше удаляли целиком  
 				EXECUTE 'SELECT replace('''|| mviews.table_name ||''', ''"'', '''')'  Into short_name;
 				rectext := 'DELETE FROM ' || mviews.table_name || '	WHERE ctid IN (SELECT ctid FROM ' || mviews.table_name || ' ORDER BY ctid asc
-                         LIMIT (
-									SELECT reltuples::bigint AS estimate 
+                         LIMIT (	SELECT reltuples::bigint AS estimate 
 									FROM   pg_class WHERE  oid = '''|| short_name ||'''::regclass) - ' || num_row_save || ')'; -- теперь оставляем 100 записей
 			ELSE
 			    rectext := 'DELETE FROM ' || mviews.table_name || ' WHERE ' || mviews.column_name || ' < timestamp '''||sDate||''''; 
@@ -71,11 +70,17 @@ BEGIN
 			BEGIN
 				EXECUTE (rectext);
 					-- Подсчет нового места
-				EXECUTE 'SELECT pg_size_pretty( pg_table_size( (tb.table_schema||''.''||tb.table_name ) )) 
+				EXECUTE 'SELECT pg_size_pretty( pg_table_size((tb.table_schema||''.''||tb.table_name ))) 
 							FROM information_schema.tables AS tb
 							WHERE  tb.table_name = split_part(replace( '''||mviews.table_name||''', ''"'', ''''),''.'',2)' Into tsize;
+
+				IF  mviews.column_name IS NULL THEN
+					RAISE NOTICE 'Очищена таблица % , оставлено 100 записей, нач.размер % - итог.размер % .',
+					mviews.table_name, beg_tsize, tsize;	
+				ELSE
 				RAISE NOTICE 'Очищена таблица % по условию период записи % < %, нач.размер % - итог.размер % .',
 				mviews.table_name, mviews.column_name, sDate, beg_tsize, tsize;	
+END IF;
 		
 			EXCEPTION WHEN OTHERS 
 				THEN
