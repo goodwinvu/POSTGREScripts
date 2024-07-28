@@ -12,7 +12,7 @@ DECLARE
 		only_test bool;
 BEGIN
 	big_size := 20971520; -- указываем размер после которого таблица считается большй 20мб по умолчанию
-	sDate := '2024-02-01'; -- указываем период до которого обрезаем периодические таблицы
+	sDate := '2024-07-01'; -- указываем период до которого обрезаем периодические таблицы
    	num_row_save := 100; -- количество строк оставляемых в непериодических таблицах
 	only_test = true; -- тестовый прогон - true - не трогать данные, только сформировать выборки, false - удаление данных
 	
@@ -55,31 +55,37 @@ BEGIN
 		-- Очистка таблиц
 		IF  mviews.column_name IS NULL 
 			THEN
+				-- Если нет колонки с периодом, то оставляем num_row_save строк
 				--rectext := 'TRUNCATE ' || mviews.table_name; раньше удаляли целиком  
 				EXECUTE 'SELECT replace('''|| mviews.table_name ||''', ''"'', '''')'  Into short_name;
 				rectext := 'DELETE FROM ' || mviews.table_name || '	WHERE ctid IN (SELECT ctid FROM ' || mviews.table_name || ' ORDER BY ctid asc
-                         LIMIT (	SELECT reltuples::bigint AS estimate 
-									FROM   pg_class WHERE  oid = '''|| short_name ||'''::regclass) - ' || num_row_save || ')'; -- теперь оставляем 100 записей
+                         LIMIT (SELECT reltuples::bigint AS estimate 
+								FROM   pg_class WHERE  oid = '''|| short_name ||'''::regclass) - ' || num_row_save || ')'; -- теперь оставляем 100 записей
 			ELSE
+				-- Если есть дата - удаляем все строки до даты
 			    rectext := 'DELETE FROM ' || mviews.table_name || ' WHERE ' || mviews.column_name || ' < timestamp '''||sDate||''''; 
 		END IF;
 				
 		IF only_test = true THEN
+				-- Просто выводим сообщение содержащее команды очистки, для теста
 				RAISE NOTICE 'Выполнится очистка %',rectext;
 		ELSE
 			BEGIN
+				-- Выполнние очистки
 				EXECUTE (rectext);
-					-- Подсчет нового места
+				EXECUTE 'VACUUM FULL ' || mviews.table_name;
+				
+				-- Подсчет нового места
 				EXECUTE 'SELECT pg_size_pretty( pg_table_size((tb.table_schema||''.''||tb.table_name ))) 
 							FROM information_schema.tables AS tb
 							WHERE  tb.table_name = split_part(replace( '''||mviews.table_name||''', ''"'', ''''),''.'',2)' Into tsize;
-
+				-- Ввыводим инфу по статусу
 				IF  mviews.column_name IS NULL THEN
 					RAISE NOTICE 'Очищена таблица % , оставлено 100 записей, нач.размер % - итог.размер % .',
 					mviews.table_name, beg_tsize, tsize;	
 				ELSE
-				RAISE NOTICE 'Очищена таблица % по условию период записи % < %, нач.размер % - итог.размер % .',
-				mviews.table_name, mviews.column_name, sDate, beg_tsize, tsize;	
+					RAISE NOTICE 'Очищена таблица % по условию период записи % < %, нач.размер % - итог.размер % .',
+					mviews.table_name, mviews.column_name, sDate, beg_tsize, tsize;	
 END IF;
 		
 			EXCEPTION WHEN OTHERS 
