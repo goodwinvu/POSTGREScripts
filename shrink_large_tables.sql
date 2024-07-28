@@ -11,10 +11,10 @@ DECLARE
 		sDate timestamp;
 		only_test bool;
 BEGIN
-	big_size := 20971520; -- указываем размер после которого таблица считается большй 20мб по умолчанию
+	big_size := 104857600; -- указываем размер после которого таблица считается большй 20мб по умолчанию
 	sDate := '2024-07-01'; -- указываем период до которого обрезаем периодические таблицы
    	num_row_save := 100; -- количество строк оставляемых в непериодических таблицах
-	only_test = true; -- тестовый прогон - true - не трогать данные, только сформировать выборки, false - удаление данных
+	only_test = false; -- тестовый прогон - true - не трогать данные, только сформировать выборки, false - удаление данных
 	
 	RAISE NOTICE 'Очистка больших таблиц.Начало выполнения.
     ';
@@ -43,7 +43,8 @@ BEGIN
 		ORDER BY total_size DESC
 		) AS pretty_sizes
 		WHERE table_size > big_size AND 
-			  table_name NOT LIKE '%_referenc%' AND
+			  table_name NOT LIKE '%_systemsettings%' AND
+			  table_name NOT LIKE '%_commonsettings%' AND
 			  table_name NOT LIKE '%pg_%'  AND
 			  table_name NOT LIKE '%params%'
     LOOP
@@ -72,29 +73,29 @@ BEGIN
 		ELSE
 			BEGIN
 				-- Выполнние очистки
-				EXECUTE (rectext);
-				EXECUTE 'VACUUM FULL ' || mviews.table_name;
-				
-				-- Подсчет нового места
-				EXECUTE 'SELECT pg_size_pretty( pg_table_size((tb.table_schema||''.''||tb.table_name ))) 
-							FROM information_schema.tables AS tb
-							WHERE  tb.table_name = split_part(replace( '''||mviews.table_name||''', ''"'', ''''),''.'',2)' Into tsize;
+				EXECUTE (rectext);	
+				--COMMIT;
+				--EXECUTE 'VACUUM FULL ' || mviews.table_name; Нельзя делать вакуум в функции :(
+				--COMMIT;
+				-- Подсчет нового места (бесполезно без вакуум)
+				--EXECUTE 'SELECT pg_size_pretty( pg_table_size((tb.table_schema||''.''||tb.table_name ))) 
+				--			FROM information_schema.tables AS tb
+				--			WHERE  tb.table_name = split_part(replace( '''||mviews.table_name||''', ''"'', ''''),''.'',2)' Into tsize;
 				-- Ввыводим инфу по статусу
 				IF  mviews.column_name IS NULL THEN
-					RAISE NOTICE 'Очищена таблица % , оставлено 100 записей, нач.размер % - итог.размер % .',
-					mviews.table_name, beg_tsize, tsize;	
+					RAISE NOTICE 'Очищена таблица % , оставлено 100 записей, нач.размер %',
+					mviews.table_name, beg_tsize;	
 				ELSE
-					RAISE NOTICE 'Очищена таблица % по условию период записи % < %, нач.размер % - итог.размер % .',
-					mviews.table_name, mviews.column_name, sDate, beg_tsize, tsize;	
-END IF;
-		
+					RAISE NOTICE 'Очищена таблица % по условию период записи % < %, нач.размер %',
+					mviews.table_name, mviews.column_name, sDate, beg_tsize;	
+				END IF;
 			EXCEPTION WHEN OTHERS 
 				THEN
 				RAISE NOTICE 'ERROR CODE: %. MESSAGE TEXT: %', SQLSTATE, SQLERRM;
 				RAISE NOTICE 'Ошибка очистки таблицы % 
                 Запрос - %
 				', mviews.table_name, rectext;
-			END;
+			END;	
 		END IF;	
 		
 		-- Очистка индексов
